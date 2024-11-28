@@ -2,6 +2,8 @@
 
 ## Caroline Rooney
 
+URL to access: http://dev-alb-1591266421.us-east-1.elb.amazonaws.com/
+
 ### Spin up instructions
 
 Ensure you have the AWS CLI installed and configured with your credentials and default region.

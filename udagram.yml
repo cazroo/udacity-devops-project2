@@ -4,6 +4,24 @@ Parameters:
   EnvironmentName:
     Type: String
     Description: Environment name for tagging resources
+  AmiId:
+    Type: String
+    Description: The AMI ID for the application instances
+  Vpc:
+    Type: String
+    Description: The VPC ID where the resources will be created
+  PublicSubnet1:
+    Type: String
+    Description: The ID of the first public subnet
+  PublicSubnet2:
+    Type: String
+    Description: The ID of the second public subnet
+  PrivateSubnet1:
+    Type: String
+    Description: The ID of the first private subnet
+  PrivateSubnet2:
+    Type: String
+    Description: The ID of the second private subnet
 
 Resources:
   # Application Load Balancer
@@ -38,32 +56,35 @@ Resources:
           FromPort: "443"
           ToPort: "443"
           CidrIp: "0.0.0.0/0"
-      VpcId: !Ref VPC
+      VpcId: !Ref Vpc
 
-  # EC2 Instances for Application
-  AppInstance1:
-    Type: AWS::EC2::Instance
+  # Launch Template for Auto Scaling Group
+  AppLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
     Properties:
-      InstanceType: t2.micro
-      ImageId: !Ref AmiId
-      SubnetId: !Ref PrivateSubnet1
-      SecurityGroupIds:
-        - !Ref AppSecurityGroup
-      Tags:
-        - Key: Name
-          Value: !Sub "${EnvironmentName}-app-instance-1"
-
-  AppInstance2:
-    Type: AWS::EC2::Instance
-    Properties:
-      InstanceType: t2.micro
-      ImageId: !Ref AmiId
-      SubnetId: !Ref PrivateSubnet2
-      SecurityGroupIds:
-        - !Ref AppSecurityGroup
-      Tags:
-        - Key: Name
-          Value: !Sub "${EnvironmentName}-app-instance-2"
+      LaunchTemplateName: !Sub "${EnvironmentName}-launch-template"
+      LaunchTemplateData:
+        InstanceType: t2.micro
+        ImageId: !Ref AmiId
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: true 
+            DeviceIndex: 0
+            Groups:
+              - !Ref AppSecurityGroup
+        IamInstanceProfile:
+          Arn: !GetAtt AppInstanceProfile.Arn
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub "${EnvironmentName}-app-instance"
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            sudo yum install -y nginx       # Install Nginx
+            sudo service nginx start        # Start Nginx
+            sudo chkconfig nginx on         # Ensure Nginx starts on boot
+            echo "<html><body><h1>Hello, Udagram!</h1></body></html>" > /usr/share/nginx/html/index.html
 
   # Auto Scaling Group for Application Instances
   AppAutoScalingGroup:
@@ -75,7 +96,11 @@ Resources:
       VPCZoneIdentifier:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
-      LaunchConfigurationName: !Ref AppLaunchConfiguration
+      LaunchTemplate:
+        LaunchTemplateId: !Ref AppLaunchTemplate
+        Version: !GetAtt AppLaunchTemplate.LatestVersionNumber
+      TargetGroupARNs:
+        - !Ref AppTargetGroup
       HealthCheckType: EC2
       HealthCheckGracePeriod: 300
       Tags:
@@ -83,21 +108,47 @@ Resources:
           Value: !Sub "${EnvironmentName}-app-auto-scaling"
           PropagateAtLaunch: true
 
-  # Launch Configuration for Auto Scaling Group
-  AppLaunchConfiguration:
-    Type: AWS::AutoScaling::LaunchConfiguration
+  # Target Group for Load Balancer
+  AppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      ImageId: !Ref AmiId
-      InstanceType: t2.micro
-      SecurityGroups:
-        - !Ref AppSecurityGroup
-      AssociatePublicIpAddress: false
+      Name: !Sub "${EnvironmentName}-target-group"
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref Vpc
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-target-group"
+
+  # Load Balancer Listener
+  AppLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AppTargetGroup
+      LoadBalancerArn: !Ref AppLoadBalancer
+      Port: 80
+      Protocol: HTTP
 
   # S3 Bucket for File Storage
   AppS3Bucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "${EnvironmentName}-s3-bucket"
+      BucketName: !Sub "udagram-${EnvironmentName}-s3-bucket-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        IgnorePublicAcls: false
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
       VersioningConfiguration:
         Status: Enabled
       Tags:
@@ -114,11 +165,7 @@ Resources:
         Statement:
           - Effect: Allow
             Action: "s3:GetObject"
-            Resource: !Sub "arn:aws:s3:::${AppS3Bucket}/*"
-            Principal: "*"
-          - Effect: Allow
-            Action: "s3:PutObject"
-            Resource: !Sub "arn:aws:s3:::${AppS3Bucket}/*"
+            Resource: !Sub "arn:aws:s3:::udagram-${EnvironmentName}-s3-bucket-${AWS::AccountId}-${AWS::Region}/*"
             Principal: "*"
 
   # EC2 Instance Profile for Application to Access S3
@@ -150,14 +197,10 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                 Resource:
-                  - !Sub "arn:aws:s3:::${AppS3Bucket}"
-                  - !Sub "arn:aws:s3:::${AppS3Bucket}/*"
+                  - !Sub "arn:aws:s3:::udagram-${EnvironmentName}-s3-bucket-${AWS::AccountId}-${AWS::Region}"
+                  - !Sub "arn:aws:s3:::udagram-${EnvironmentName}-s3-bucket-${AWS::AccountId}-${AWS::Region}/*"
 
 Outputs:
-  VpcId:
-    Description: "VPC ID"
-    Value: !Ref VPC
-
   PublicSubnet1Id:
     Description: "Public Subnet 1 ID"
     Value: !Ref PublicSubnet1
@@ -177,3 +220,7 @@ Outputs:
   AppS3BucketName:
     Description: "S3 Bucket Name for File Storage"
     Value: !Ref AppS3Bucket
+
+  LoadBalancerDNS:
+    Description: "DNS name of the Application Load Balancer"
+    Value: !GetAtt AppLoadBalancer.DNSName
