@@ -1,0 +1,37 @@
+{
+  "EnvironmentName": {
+    "Type": "String",
+    "Description": "Environment name for tagging resources",
+    "Default": "dev"
+  },
+  "AmiId": {
+    "Type": "AWS::EC2::Image::Id",
+    "Description": "AMI ID to launch the EC2 instances",
+    "Default": "ami-0c55b159cbfafe1f0"
+  },
+  "Vpc": {
+    "Type": "AWS::EC2::VPC::Id",
+    "Description": "VPC ID",
+    "Default": "vpc-xxxxxxxx"
+  },
+  "PublicSubnet1": {
+    "Type": "AWS::EC2::Subnet::Id",
+    "Description": "Public subnet 1 ID",
+    "Default": "subnet-xxxxxxxx"
+  },
+  "PublicSubnet2": {
+    "Type": "AWS::EC2::Subnet::Id",
+    "Description": "Public subnet 2 ID",
+    "Default": "subnet-xxxxxxxx"
+  },
+  "PrivateSubnet1": {
+    "Type": "AWS::EC2::Subnet::Id",
+    "Description": "Private subnet 1 ID",
+    "Default": "subnet-xxxxxxxx"
+  },
+  "PrivateSubnet2": {
+    "Type": "AWS::EC2::Subnet::Id",
+    "Description": "Private subnet 2 ID",
+    "Default": "subnet-xxxxxxxx"
+  }
+}
